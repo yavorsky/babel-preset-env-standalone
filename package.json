@@ -6,7 +6,7 @@
   "homepage": "https://babeljs.io/",
   "license": "MIT",
   "repository": "https://github.com/yavorsky/babel-preset-env-standalone",
-  "main": "lib/index.js",
+  "main": "babel-preset-env.js",
   "files": [
     "babel-preset-env.js",
     "src"
