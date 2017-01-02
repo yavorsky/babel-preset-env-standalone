@@ -3,3 +3,8 @@ lib
 .DS_Store
 *.log
 .vscode
+.grunt
+
+/babel-preset-env.js
+/babel-preset-env.min.js
+src
