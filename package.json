@@ -1,6 +1,6 @@
 {
   "name": "babel-preset-env-standalone",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A Babel preset for each environment.",
   "author": "Artem Yavorsky <info@yavorsky.org>",
   "homepage": "https://babeljs.io/",
@@ -9,6 +9,7 @@
   "main": "babel-preset-env.js",
   "files": [
     "babel-preset-env.js",
+    "babel-preset-env.min.js",
     "src"
   ],
   "scripts": {
