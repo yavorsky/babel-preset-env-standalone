@@ -1,11 +1,11 @@
 {
-  "name": "babel-preset-env",
-  "version": "1.1.4",
+  "name": "babel-preset-env-standalone",
+  "version": "0.0.1",
   "description": "A Babel preset for each environment.",
-  "author": "Henry Zhu <hi@henryzoo.com>",
+  "author": "Artem Yavorsky <info@yavorsky.org>",
   "homepage": "https://babeljs.io/",
   "license": "MIT",
-  "repository": "https://github.com/babel/babel-preset-env",
+  "repository": "https://github.com/yavorsky/babel-preset-env-standalone",
   "main": "lib/index.js",
   "files": [
     "babel-preset-env.js",
