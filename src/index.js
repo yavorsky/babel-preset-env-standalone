@@ -1,18 +1,22 @@
-import pluginList from "babel-preset-env/data/plugins.json";
-import builtInsList from "babel-preset-env/data/built-ins.json";
-import electronToChromium from "babel-preset-env/data/electron-to-chromium";
-import transformPolyfillRequirePlugin from "./transform-polyfill-require-plugin";
+const pluginList = require("babel-preset-env/data/plugins.json");
+const builtInsList = require("babel-preset-env/data/built-ins.json");
+// const electronToChromium = require("babel-preset-env/data/electron-to-chromium");
+const MODULE_TRANSFORMATIONS = require("babel-preset-env/lib/module-transformations").default;
+// const { validatePluginsOption } = require("babel-preset-env/lib/normalize-options");
+const { defaultWebIncludes } = require("babel-preset-env/lib/default-includes");
+const normalizeOptions = require("babel-preset-env/lib/normalize-options").default;
+const transformPolyfillRequirePlugin = require("./transform-polyfill-require-plugin").default;
 import {
-  MODULE_TRANSFORMATIONS,
-  isPluginRequired, 
-  validIncludesAndExcludes, 
-  getCurrentNodeVersion, 
-  electronVersionToChromeVersion, 
-  getTargets, 
-  validateLooseOption,
-  validateModulesOption, 
-  validatePluginsOption,
-  checkDuplicateIncludeExcludes} from "babel-preset-env";
+  isPluginRequired,
+  // validIncludesAndExcludes,
+  // getCurrentNodeVersion,
+  // electronVersionToChromeVersion,
+  getTargets,
+  // validateLooseOption,
+  // validateModulesOption,
+  // validatePluginsOption,
+  // checkDuplicateIncludeExcludes
+} from "babel-preset-env";
 
 export const availablePlugins = {
   "babel-plugin-check-es2015-constants": require("babel-plugin-check-es2015-constants"),
@@ -42,75 +46,124 @@ export const availablePlugins = {
   "babel-plugin-transform-es2015-unicode-regex": require("babel-plugin-transform-es2015-unicode-regex"),
   "babel-plugin-transform-exponentiation-operator": require("babel-plugin-transform-exponentiation-operator"),
   "babel-plugin-transform-regenerator": require("babel-plugin-transform-regenerator")
-}
+};
 
-const defaultInclude = [
-  "web.timers",
-  "web.immediate",
-  "web.dom.iterable"
-];
+const _extends = Object.assign || function (target) {
+  for (let i = 1; i < arguments.length; i++) {
+    const source = arguments[i];
+    for (const key in source) {
+      if (Object.prototype.hasOwnProperty.call(source, key)) {
+        target[key] = source[key];
+      }
+    }
+  }
+  return target;
+};
 
-const validateIncludeOption = (opts) => validatePluginsOption(opts, "include");
-const validateExcludeOption = (opts) => validatePluginsOption(opts, "exclude");
+export const transformIncludesAndExcludes = (opts) => ({
+  all: opts,
+  plugins: opts.filter((opt) => !opt.match(/^(es\d+|web)\./)),
+  builtIns: opts.filter((opt) => opt.match(/^(es\d+|web)\./))
+});
+
 
 let hasBeenLogged = false;
-let hasBeenWarned = false;
 
-const logPlugin = (plugin, targets, list) => {
+const getPluginTargets = (plugin, targets, list) => {
   const envList = list[plugin] || {};
   const filteredList = Object.keys(targets)
   .reduce((a, b) => {
-    a[b] = envList[b];
+    if (!envList[b] || targets[b] < envList[b]) {
+      a[b] = targets[b];
+    }
     return a;
   }, {});
-  const logStr = `\n ${plugin} ${JSON.stringify(filteredList)}`;
+  return filteredList;
+};
+
+const logPlugin = (plugin, targets, list) => {
+  const filteredList = getPluginTargets(plugin, targets, list);
+  const logStr = `  ${plugin} ${JSON.stringify(filteredList)}`;
   console.log(logStr);
 };
 
-export default function buildPreset(context, opts = {}) {
-  const loose = validateLooseOption(opts.loose);
-  const moduleType = validateModulesOption(opts.modules);
-  // TODO: remove whitelist in favor of include in next major
-  if (opts.whitelist && !hasBeenWarned) {
-    hasBeenWarned = true;
-    console.warn(`The "whitelist" option has been deprecated
-    in favor of "include" to match the newly added "exclude" option (instead of "blacklist").`);
+const getBuiltInTargets = (targets) => {
+  const builtInTargets = _extends({}, targets);
+  if (builtInTargets.uglify != null) {
+    delete builtInTargets.uglify;
   }
-  const include = validateIncludeOption(opts.whitelist || opts.include);
-  const exclude = validateExcludeOption(opts.exclude);
-  checkDuplicateIncludeExcludes(include.all, exclude.all);
-  const targets = getTargets(opts.targets);
-  const debug = opts.debug;
-  const useBuiltIns = opts.useBuiltIns;
+  return builtInTargets;
+};
+
+function getPlatformSpecificDefaultFor(targets) {
+  const targetNames = Object.keys(targets);
+  const isAnyTarget = !targetNames.length;
+  const isWebTarget = targetNames.some((name) => name !== "node");
+
+  return (isAnyTarget || isWebTarget) ? defaultWebIncludes : [];
+}
+
+const filterItem = (targets, exclusions, list, item) => {
+  const isDefault = defaultWebIncludes.indexOf(item) >= 0;
+  const notExcluded = exclusions.indexOf(item) === -1;
+
+  if (isDefault) return notExcluded;
+  const isRequired = isPluginRequired(targets, list[item]);
+  return isRequired && notExcluded;
+};
+
+export default function buildPreset(context, opts = {}) {
+  const validatedOptions = normalizeOptions(opts);
+  const { debug, loose, moduleType, useBuiltIns } = validatedOptions;
+  const targets = getTargets(validatedOptions.targets);
+  const include = transformIncludesAndExcludes(validatedOptions.include);
+  const exclude = transformIncludesAndExcludes(validatedOptions.exclude);
+  // const loose = validateLooseOption(opts.loose);
+  // const moduleType = validateModulesOption(opts.modules);
+  // TODO: remove whitelist in favor of include in next major
+  // if (opts.whitelist && (logOnCompile || !hasBeenWarned)) {
+  //   hasBeenWarned = true;
+  //   console.warn(`The "whitelist" option has been deprecated
+  //   in favor of "include" to match the newly added "exclude" option (instead of "blacklist").`);
+  // }
+  // const include = validateIncludeOption(opts.whitelist || opts.include);
+  // const exclude = validateExcludeOption(opts.exclude);
+  // checkDuplicateIncludeExcludes(include.all, exclude.all);
+  // const targets = getTargets(opts.targets);
+  // const debug = opts.debug;
+  // const useBuiltIns = opts.useBuiltIns;
 
   let transformations = Object.keys(pluginList)
     .filter((pluginName) => isPluginRequired(targets, pluginList[pluginName]));
 
   let polyfills;
+  let polyfillTargets;
   if (useBuiltIns) {
+    polyfillTargets = getBuiltInTargets(targets);
+    const filterBuiltIns = filterItem.bind(null, polyfillTargets, exclude.builtIns, builtInsList);
     polyfills = Object.keys(builtInsList)
-      .filter((builtInName) => isPluginRequired(targets, builtInsList[builtInName]))
-      .concat(defaultInclude)
-      .filter((plugin) => exclude.builtIns.indexOf(plugin) === -1)
+      .concat(getPlatformSpecificDefaultFor(polyfillTargets))
+      .filter(filterBuiltIns)
       .concat(include.builtIns);
   }
 
-  if (debug && !hasBeenLogged) {
+  const logOnCompile = debug === "compile";
+  if (debug && (logOnCompile || !hasBeenLogged)) {
     hasBeenLogged = true;
     console.log("babel-preset-env: `DEBUG` option");
     console.log("");
-    console.log(`Using targets: ${JSON.stringify(opts.targets, null, 2)}`);
+    console.log(`Using targets: ${JSON.stringify(targets, null, 2)}`);
     console.log("");
     console.log(`modules transform: ${moduleType}`);
     console.log("");
     console.log("Using plugins:");
     transformations.forEach((transform) => {
-      logPlugin(transform, opts.targets, pluginList);
+      logPlugin(transform, targets, pluginList);
     });
     console.log("\nUsing polyfills:");
     if (useBuiltIns && polyfills.length) {
       polyfills.forEach((polyfill) => {
-        logPlugin(polyfill, opts.targets, builtInsList);
+        logPlugin(polyfill, targets, builtInsList);
       });
     }
   }
@@ -133,8 +186,34 @@ export default function buildPreset(context, opts = {}) {
   useBuiltIns &&
     plugins.push([transformPolyfillRequirePlugin, { polyfills, regenerator }]);
 
+  if (opts.onPresetBuild) {
+    const transformationsWithTargets = transformations.map((transform) => (
+      {
+        name: transform,
+        targets: getPluginTargets(transform, targets, pluginList)
+      }
+    ));
+    let polyfillsWithTargets;
+    if (useBuiltIns) {
+      polyfillsWithTargets = polyfills.map((polyfill) => (
+        {
+          name: polyfill,
+          targets: getPluginTargets(polyfill, targets, builtInsList)
+        }
+      ));
+    }
+
+    opts.onPresetBuild({
+      targets,
+      transformations,
+      transformationsWithTargets,
+      polyfills,
+      polyfillsWithTargets,
+      modulePlugin
+    });
+  }
+
   return {
     plugins
   };
 }
-
