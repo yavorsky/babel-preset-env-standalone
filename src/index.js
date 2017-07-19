@@ -6,17 +6,18 @@ const MODULE_TRANSFORMATIONS = require("babel-preset-env/lib/module-transformati
 const { defaultWebIncludes } = require("babel-preset-env/lib/default-includes");
 const normalizeOptions = require("babel-preset-env/lib/normalize-options").default;
 const transformPolyfillRequirePlugin = require("./transform-polyfill-require-plugin").default;
+
 import {
   isPluginRequired,
   // validIncludesAndExcludes,
   // getCurrentNodeVersion,
   // electronVersionToChromeVersion,
-  getTargets,
   // validateLooseOption,
   // validateModulesOption,
   // validatePluginsOption,
   // checkDuplicateIncludeExcludes
 } from "babel-preset-env";
+import getTargets from "babel-preset-env/lib/targets-parser";
 
 export const availablePlugins = {
   "babel-plugin-check-es2015-constants": require("babel-plugin-check-es2015-constants"),
@@ -114,7 +115,7 @@ const filterItem = (targets, exclusions, list, item) => {
 
 export default function buildPreset(context, opts = {}) {
   const validatedOptions = normalizeOptions(opts);
-  const { debug, loose, moduleType, useBuiltIns } = validatedOptions;
+  const { debug, loose, moduleType, useBuiltIns, spec } = validatedOptions;
   const targets = getTargets(validatedOptions.targets);
   const include = transformIncludesAndExcludes(validatedOptions.include);
   const exclude = transformIncludesAndExcludes(validatedOptions.exclude);
@@ -180,7 +181,7 @@ export default function buildPreset(context, opts = {}) {
     plugins.push([availablePlugins[`babel-plugin-${modulePlugin}`], { loose }]);
 
   plugins.push(...allTransformations.map((pluginName) =>
-    [availablePlugins[`babel-plugin-${pluginName}`], { loose }]
+    [availablePlugins[`babel-plugin-${pluginName}`], { loose, spec }]
   ));
 
   useBuiltIns &&
