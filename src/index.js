@@ -6,6 +6,10 @@ const MODULE_TRANSFORMATIONS = require("babel-preset-env/lib/module-transformati
 const { defaultWebIncludes } = require("babel-preset-env/lib/default-includes");
 const normalizeOptions = require("babel-preset-env/lib/normalize-options").default;
 const transformPolyfillRequirePlugin = require("./transform-polyfill-require-plugin").default;
+import getTargets from "babel-preset-env/lib/targets-parser";
+import useBuiltInsEntryPlugin from "babel-preset-env/lib/use-built-ins-entry-plugin";
+import addUsedBuiltInsPlugin from "babel-preset-env/lib/use-built-ins-plugin";
+import moduleTransformations from "babel-preset-env/lib/module-transformations";
 
 import {
   isPluginRequired,
@@ -17,7 +21,6 @@ import {
   // validatePluginsOption,
   // checkDuplicateIncludeExcludes
 } from "babel-preset-env";
-import getTargets from "babel-preset-env/lib/targets-parser";
 
 export const availablePlugins = {
   "babel-plugin-check-es2015-constants": require("babel-plugin-check-es2015-constants"),
@@ -61,11 +64,40 @@ const _extends = Object.assign || function (target) {
   return target;
 };
 
-export const transformIncludesAndExcludes = (opts) => ({
-  all: opts,
-  plugins: opts.filter((opt) => !opt.match(/^(es\d+|web)\./)),
-  builtIns: opts.filter((opt) => opt.match(/^(es\d+|web)\./))
-});
+export const transformIncludesAndExcludes = (opts: Array<string>): Object => {
+  return opts.reduce(
+    (result, opt) => {
+      const target = opt.match(/^(es\d+|web)\./) ? "builtIns" : "plugins";
+      result[target].add(opt);
+      return result;
+    },
+    {
+      all: opts,
+      plugins: new Set(),
+      builtIns: new Set(),
+    },
+  );
+};
+
+const filterItems = (list, includes, excludes, targets, defaultItems) => {
+  const result = new Set();
+
+  for (const item in list) {
+    const excluded = excludes.has(item);
+
+    if (!excluded && isPluginRequired(targets, list[item])) {
+      result.add(item);
+    }
+  }
+
+  if (defaultItems) {
+    defaultItems.forEach(item => !excludes.has(item) && result.add(item));
+  }
+
+  includes.forEach(item => result.add(item));
+
+  return result;
+};
 
 
 let hasBeenLogged = false;
@@ -113,108 +145,120 @@ const filterItem = (targets, exclusions, list, item) => {
   return isRequired && notExcluded;
 };
 
-export default function buildPreset(context, opts = {}) {
-  const validatedOptions = normalizeOptions(opts);
-  const { debug, loose, moduleType, useBuiltIns, spec } = validatedOptions;
-  const targets = getTargets(validatedOptions.targets);
-  const include = transformIncludesAndExcludes(validatedOptions.include);
-  const exclude = transformIncludesAndExcludes(validatedOptions.exclude);
-  // const loose = validateLooseOption(opts.loose);
-  // const moduleType = validateModulesOption(opts.modules);
-  // TODO: remove whitelist in favor of include in next major
-  // if (opts.whitelist && (logOnCompile || !hasBeenWarned)) {
-  //   hasBeenWarned = true;
-  //   console.warn(`The "whitelist" option has been deprecated
-  //   in favor of "include" to match the newly added "exclude" option (instead of "blacklist").`);
-  // }
-  // const include = validateIncludeOption(opts.whitelist || opts.include);
-  // const exclude = validateExcludeOption(opts.exclude);
-  // checkDuplicateIncludeExcludes(include.all, exclude.all);
-  // const targets = getTargets(opts.targets);
-  // const debug = opts.debug;
-  // const useBuiltIns = opts.useBuiltIns;
+export default function buildPreset(
+  context,
+  opts,
+) {
+  const {
+    debug,
+    exclude: optionsExclude,
+    forceAllTransforms,
+    include: optionsInclude,
+    loose,
+    modules,
+    spec,
+    targets: optionsTargets,
+    useBuiltIns,
+  } = normalizeOptions(opts);
 
-  let transformations = Object.keys(pluginList)
-    .filter((pluginName) => isPluginRequired(targets, pluginList[pluginName]));
+  // TODO: remove this in next major
+  let hasUglifyTarget = false;
+
+  if (optionsTargets && optionsTargets.uglify) {
+    hasUglifyTarget = true;
+    delete optionsTargets.uglify;
+
+    console.log("");
+    console.log("The uglify target has been deprecated. Set the top level");
+    console.log("option `forceAllTransforms: true` instead.");
+    console.log("");
+  }
+
+  const targets = getTargets(optionsTargets);
+  const include = transformIncludesAndExcludes(optionsInclude);
+  const exclude = transformIncludesAndExcludes(optionsExclude);
+
+  const transformTargets = forceAllTransforms || hasUglifyTarget ? {} : targets;
+
+  const transformations = filterItems(
+    pluginList,
+    include.plugins,
+    exclude.plugins,
+    transformTargets,
+  );
 
   let polyfills;
   let polyfillTargets;
+
   if (useBuiltIns) {
     polyfillTargets = getBuiltInTargets(targets);
-    const filterBuiltIns = filterItem.bind(null, polyfillTargets, exclude.builtIns, builtInsList);
-    polyfills = Object.keys(builtInsList)
-      .concat(getPlatformSpecificDefaultFor(polyfillTargets))
-      .filter(filterBuiltIns)
-      .concat(include.builtIns);
+
+    polyfills = filterItems(
+      builtInsList,
+      include.builtIns,
+      exclude.builtIns,
+      polyfillTargets,
+      getPlatformSpecificDefaultFor(polyfillTargets),
+    );
   }
 
-  const logOnCompile = debug === "compile";
-  if (debug && (logOnCompile || !hasBeenLogged)) {
+  const plugins = [];
+  const modulePlugin = modules !== false && MODULE_TRANSFORMATIONS[modules];
+
+  if (modulePlugin) {
+    plugins.push([availablePlugins[`babel-plugin-${modulePlugin}`], { loose }]);
+  }
+
+  // NOTE: not giving spec here yet to avoid compatibility issues when
+  // babel-plugin-transform-es2015-modules-commonjs gets its spec mode
+  transformations.forEach(pluginName =>
+    plugins.push([availablePlugins[`babel-plugin-${pluginName}`], { loose, spec }]),
+  );
+
+  const regenerator = transformations.has("transform-regenerator");
+
+  if (debug && !hasBeenLogged) {
     hasBeenLogged = true;
     console.log("babel-preset-env: `DEBUG` option");
-    console.log("");
-    console.log(`Using targets: ${JSON.stringify(targets, null, 2)}`);
-    console.log("");
-    console.log(`modules transform: ${moduleType}`);
-    console.log("");
-    console.log("Using plugins:");
-    transformations.forEach((transform) => {
+    console.log("\nUsing targets:");
+    console.log(JSON.stringify(prettifyTargets(targets), null, 2));
+    console.log(`\nUsing modules transform: ${modules.toString()}`);
+    console.log("\nUsing plugins:");
+    transformations.forEach(transform => {
       logPlugin(transform, targets, pluginList);
     });
-    console.log("\nUsing polyfills:");
-    if (useBuiltIns && polyfills.length) {
-      polyfills.forEach((polyfill) => {
-        logPlugin(polyfill, targets, builtInsList);
-      });
+
+    if (!useBuiltIns) {
+      console.log(
+        "\nUsing polyfills: No polyfills were added, since the `useBuiltIns` option was not set.",
+      );
+    } else {
+      console.log(
+        `
+Using polyfills with \`${useBuiltIns}\` option:`,
+      );
     }
   }
 
-  const allTransformations = transformations
-    .filter((plugin) => exclude.plugins.indexOf(plugin) === -1)
-    .concat(include.plugins);
-
-  const regenerator = allTransformations.indexOf("transform-regenerator") >= 0;
-  const modulePlugin = moduleType !== false && MODULE_TRANSFORMATIONS[moduleType];
-  const plugins = [];
-
-  modulePlugin &&
-    plugins.push([availablePlugins[`babel-plugin-${modulePlugin}`], { loose }]);
-
-  plugins.push(...allTransformations.map((pluginName) =>
-    [availablePlugins[`babel-plugin-${pluginName}`], { loose, spec }]
-  ));
-
-  useBuiltIns &&
-    plugins.push([transformPolyfillRequirePlugin, { polyfills, regenerator }]);
-
-  if (opts.onPresetBuild) {
-    const transformationsWithTargets = transformations.map((transform) => (
-      {
-        name: transform,
-        targets: getPluginTargets(transform, targets, pluginList)
-      }
-    ));
-    let polyfillsWithTargets;
-    if (useBuiltIns) {
-      polyfillsWithTargets = polyfills.map((polyfill) => (
-        {
-          name: polyfill,
-          targets: getPluginTargets(polyfill, targets, builtInsList)
-        }
-      ));
-    }
-
-    opts.onPresetBuild({
-      targets,
-      transformations,
-      transformationsWithTargets,
+  if (useBuiltIns === "usage" || useBuiltIns === "entry") {
+    const pluginOptions = {
+      debug,
       polyfills,
-      polyfillsWithTargets,
-      modulePlugin
-    });
+      regenerator,
+      onDebug: (polyfills, context) => {
+        polyfills.forEach(polyfill =>
+          logPlugin(polyfill, polyfillTargets, builtInsList, context),
+        );
+      },
+    };
+
+    plugins.push([
+      useBuiltIns === "usage" ? addUsedBuiltInsPlugin : useBuiltInsEntryPlugin,
+      pluginOptions,
+    ]);
   }
 
   return {
-    plugins
+    plugins,
   };
 }
