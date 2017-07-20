@@ -1,26 +1,17 @@
-const pluginList = require("babel-preset-env/data/plugins.json");
-const builtInsList = require("babel-preset-env/data/built-ins.json");
+import pluginList from "babel-preset-env/data/plugins.json";
+import builtInsList from "babel-preset-env/data/built-ins.json";
 // const electronToChromium = require("babel-preset-env/data/electron-to-chromium");
-const MODULE_TRANSFORMATIONS = require("babel-preset-env/lib/module-transformations").default;
-// const { validatePluginsOption } = require("babel-preset-env/lib/normalize-options");
-const { defaultWebIncludes } = require("babel-preset-env/lib/default-includes");
-const normalizeOptions = require("babel-preset-env/lib/normalize-options").default;
-const transformPolyfillRequirePlugin = require("./transform-polyfill-require-plugin").default;
+import MODULE_TRANSFORMATIONS from "babel-preset-env/lib/module-transformations";
+import { logPlugin } from "babel-preset-env/lib/debug";
+import { defaultWebIncludes } from "babel-preset-env/lib/default-includes";
+import normalizeOptions from "babel-preset-env/lib/normalize-options";
+import transformPolyfillRequirePlugin from "./transform-polyfill-require-plugin";
 import getTargets from "babel-preset-env/lib/targets-parser";
 import useBuiltInsEntryPlugin from "babel-preset-env/lib/use-built-ins-entry-plugin";
 import addUsedBuiltInsPlugin from "babel-preset-env/lib/use-built-ins-plugin";
 import moduleTransformations from "babel-preset-env/lib/module-transformations";
 
-import {
-  isPluginRequired,
-  // validIncludesAndExcludes,
-  // getCurrentNodeVersion,
-  // electronVersionToChromeVersion,
-  // validateLooseOption,
-  // validateModulesOption,
-  // validatePluginsOption,
-  // checkDuplicateIncludeExcludes
-} from "babel-preset-env";
+import { isPluginRequired, transformIncludesAndExcludes } from "babel-preset-env";
 
 export const availablePlugins = {
   "babel-plugin-check-es2015-constants": require("babel-plugin-check-es2015-constants"),
@@ -64,21 +55,6 @@ const _extends = Object.assign || function (target) {
   return target;
 };
 
-export const transformIncludesAndExcludes = (opts: Array<string>): Object => {
-  return opts.reduce(
-    (result, opt) => {
-      const target = opt.match(/^(es\d+|web)\./) ? "builtIns" : "plugins";
-      result[target].add(opt);
-      return result;
-    },
-    {
-      all: opts,
-      plugins: new Set(),
-      builtIns: new Set(),
-    },
-  );
-};
-
 const filterItems = (list, includes, excludes, targets, defaultItems) => {
   const result = new Set();
 
@@ -112,12 +88,6 @@ const getPluginTargets = (plugin, targets, list) => {
     return a;
   }, {});
   return filteredList;
-};
-
-const logPlugin = (plugin, targets, list) => {
-  const filteredList = getPluginTargets(plugin, targets, list);
-  const logStr = `  ${plugin} ${JSON.stringify(filteredList)}`;
-  console.log(logStr);
 };
 
 const getBuiltInTargets = (targets) => {
@@ -256,6 +226,33 @@ Using polyfills with \`${useBuiltIns}\` option:`,
       useBuiltIns === "usage" ? addUsedBuiltInsPlugin : useBuiltInsEntryPlugin,
       pluginOptions,
     ]);
+  }
+
+  if (opts.onPresetBuild) {
+    const transformationsWithTargets = [];
+    transformations.forEach((transform) => (
+      transformationsWithTargets.push({
+        name: transform,
+        targets: getPluginTargets(transform, targets, pluginList)
+      })
+    ));
+    const polyfillsWithTargets = [];
+    if (useBuiltIns) {
+      polyfills.forEach((polyfill) => (
+        polyfillsWithTargets.push({
+          name: polyfill,
+          targets: getPluginTargets(polyfill, targets, builtInsList)
+        })
+      ));
+    }
+
+    opts.onPresetBuild({
+      targets,
+      transformations,
+      transformationsWithTargets,
+      polyfillsWithTargets,
+      modulePlugin
+    });
   }
 
   return {
